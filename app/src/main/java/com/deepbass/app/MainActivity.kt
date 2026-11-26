@@ -3,6 +3,12 @@ package com.deepbass.app
 import android.app.Activity
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
+import android.media.AudioManager
+import android.media.MediaCodecList
+import android.media.MediaCodecInfo
+import android.content.Intent
+import android.provider.Settings
+import android.os.Build
 import android.os.Bundle
 import android.graphics.Color
 import android.graphics.Typeface
@@ -132,6 +138,42 @@ class MainActivity : Activity() {
         }
         content.addView(row)
 
+        content.addView(section("DOLBY ATMOS / SPATIAL AUDIO"))
+        content.addView(card().apply {
+            addView(TextView(this@MainActivity).apply {
+                text = "DEVICE SUPPORT"
+                textSize = 12f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+            }, matchWrap())
+            addView(TextView(this@MainActivity).apply {
+                text = spatialAudioSummary()
+                textSize = 12f
+                setTextColor(Color.LTGRAY)
+                setPadding(0, dp(8), 0, dp(12))
+            }, matchWrap())
+            val settingsButton = Button(this@MainActivity).apply {
+                text = "OPEN PHONE SOUND SETTINGS"
+                textSize = 11f
+                setTextColor(Color.WHITE)
+                background = rounded(panel, 14)
+                setOnClickListener {
+                    try {
+                        startActivity(Intent(Settings.ACTION_SOUND_SETTINGS))
+                    } catch (_: Exception) {
+                        Toast.makeText(this@MainActivity, "Open Settings > Sound manually", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            addView(settingsButton, matchWrap())
+            addView(TextView(this@MainActivity).apply {
+                text = "DeepBass cannot switch on Dolby Atmos directly. If your phone has Dolby Atmos, enable it in the system sound settings. This app's bass/equalizer effects are separate."
+                textSize = 11f
+                setTextColor(Color.LTGRAY)
+                setPadding(0, dp(8), 0, 0)
+            }, matchWrap())
+        })
+
         content.addView(section("EQUALIZER"))
         content.addView(card().apply {
             val labels = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")
@@ -173,6 +215,36 @@ class MainActivity : Activity() {
             setTextColor(Color.GRAY)
             gravity = Gravity.CENTER
         }, matchWrap())
+    }
+
+    private fun spatialAudioSummary(): String {
+        val atmosCodec = try {
+            val codecs = MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos
+            codecs.any { info ->
+                info.supportedTypes.any { type ->
+                    type.equals("audio/eac3-joc", true) || type.equals("audio/ac4", true)
+                }
+            }
+        } catch (_: Exception) { false }
+
+        val spatial = if (Build.VERSION.SDK_INT >= 32) {
+            try {
+                val manager = getSystemService(AudioManager::class.java)
+                val s = manager?.spatializer
+                if (s != null && s.isAvailable) {
+                    if (s.isEnabled) "Android spatial audio is available and enabled." else "Android spatial audio is supported but currently disabled."
+                } else "Android spatial audio is not reported as available."
+            } catch (_: Exception) { "Spatial audio status could not be read." }
+        } else {
+            "Android spatializer status requires Android 12 or newer."
+        }
+
+        val codec = if (atmosCodec) {
+            "Device reports a Dolby-capable audio codec (E-AC-3 JOC / AC-4); this does not confirm Dolby Atmos processing is active."
+        } else {
+            "No Dolby Atmos-capable decoder was detected through standard codec names."
+        }
+        return "$codec\n$spatial\nAtmos availability and controls depend on your phone's manufacturer and firmware."
     }
 
     private fun applyPreset(name: String) {
