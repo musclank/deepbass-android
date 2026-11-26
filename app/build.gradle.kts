@@ -13,3 +13,7 @@ android {
         versionName = "1.0"
     }
 }
+
+dependencies {
+    implementation("androidx.media3:media3-exoplayer:1.5.1")
+}
