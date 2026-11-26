@@ -15,10 +15,17 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.widget.*
 import android.graphics.drawable.GradientDrawable
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
 
 class MainActivity : Activity() {
     private var bass: BassBoost? = null
     private var eq: Equalizer? = null
+    private var player: ExoPlayer? = null
+    private var playerStatus: TextView? = null
+    private var playerButton: Button? = null
+    private var selectedAudio: android.net.Uri? = null
     private var enabled = true
     private var bassStrength = 650
     private var status: TextView? = null
@@ -174,6 +181,52 @@ class MainActivity : Activity() {
             }, matchWrap())
         })
 
+        content.addView(section("ATMOS-CAPABLE PLAYER"))
+        content.addView(card().apply {
+            addView(TextView(this@MainActivity).apply {
+                text = "Play a local audio file"
+                textSize = 14f
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+            }, matchWrap())
+            addView(TextView(this@MainActivity).apply {
+                text = "Choose an audio file from your phone. If it contains a supported Dolby Atmos format and your device supports the required decoding and output, Android may play it with available spatial audio processing."
+                textSize = 11f
+                setTextColor(Color.LTGRAY)
+                setPadding(0, dp(8), 0, dp(12))
+            }, matchWrap())
+            val chooseButton = Button(this@MainActivity).apply {
+                text = "CHOOSE AUDIO FILE"
+                textSize = 11f
+                setTextColor(Color.WHITE)
+                background = rounded(panel, 14)
+                setOnClickListener {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "audio/*"
+                    }
+                    startActivityForResult(intent, 2401)
+                }
+            }
+            addView(chooseButton, matchWrap())
+            playerButton = Button(this@MainActivity).apply {
+                text = "PLAY / PAUSE"
+                textSize = 11f
+                setTextColor(Color.WHITE)
+                background = rounded(cyan, 14)
+                setOnClickListener { togglePlayback() }
+                isEnabled = false
+            }
+            addView(playerButton, matchWrap())
+            playerStatus = TextView(this@MainActivity).apply {
+                text = "No audio selected"
+                textSize = 11f
+                setTextColor(cyan)
+                setPadding(0, dp(8), 0, 0)
+            }
+            addView(playerStatus, matchWrap())
+        })
+
         content.addView(section("EQUALIZER"))
         content.addView(card().apply {
             val labels = listOf("60 Hz", "230 Hz", "910 Hz", "3.6 kHz", "14 kHz")
@@ -215,6 +268,55 @@ class MainActivity : Activity() {
             setTextColor(Color.GRAY)
             gravity = Gravity.CENTER
         }, matchWrap())
+    }
+
+    @Deprecated("Use Activity Result APIs in a future update")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 2401 || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        selectedAudio = uri
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {}
+        try {
+            player?.release()
+            player = ExoPlayer.Builder(this).build().apply {
+                setMediaItem(MediaItem.fromUri(uri))
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        playerStatus?.text = when (playbackState) {
+                            Player.STATE_BUFFERING -> "Preparing audio…"
+                            Player.STATE_READY -> "Audio ready • device support varies"
+                            Player.STATE_ENDED -> "Playback finished"
+                            else -> playerStatus?.text ?: "Audio selected"
+                        }
+                    }
+                    override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                        playerStatus?.text = "Cannot play this file. Try another audio format."
+                    }
+                })
+                prepare()
+            }
+            playerStatus?.text = "Audio selected"
+            playerButton?.isEnabled = true
+            playerButton?.text = "PLAY"
+        } catch (_: Exception) {
+            playerStatus?.text = "Player initialization failed"
+            playerButton?.isEnabled = false
+        }
+    }
+
+    private fun togglePlayback() {
+        val audioPlayer = player ?: return
+        if (audioPlayer.isPlaying) {
+            audioPlayer.pause()
+            playerButton?.text = "PLAY"
+        } else {
+            audioPlayer.play()
+            playerButton?.text = "PAUSE"
+            playerStatus?.text = "Playing in-app audio • Atmos is not guaranteed"
+        }
     }
 
     private fun spatialAudioSummary(): String {
@@ -303,6 +405,8 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     override fun onDestroy() {
+        try { player?.release() } catch (_: Exception) {}
+        player = null
         try { bass?.release() } catch (_: Exception) {}
         try { eq?.release() } catch (_: Exception) {}
         bass = null
